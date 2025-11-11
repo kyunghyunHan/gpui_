@@ -1,7 +1,7 @@
 use gpui::{
-    canvas, div, fill, outline, point, prelude::*, px, rgb, size, App, Application, BorderStyle,
-    Bounds, Context, FontWeight, PathBuilder, Pixels, Render, SharedString, Window, WindowBounds,
-    WindowOptions,
+    App, Application, BorderStyle, Bounds, Context, FontWeight, PathBuilder, Pixels, Render,
+    SharedString, Window, WindowBounds, WindowOptions, canvas, div, fill, outline, point,
+    prelude::*, px, rgb, size,
 };
 
 #[derive(Clone, Copy)]
@@ -12,16 +12,24 @@ struct Candle {
     close: f32,
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum ChartMode {
+    Candlestick,
+    Line,
+}
+
 #[derive(Clone)]
 struct ChartState {
     candles: Vec<Candle>,
     min_low: f32,
     max_high: f32,
+    mode: ChartMode,
 }
 
 struct StockChart {
     symbol: SharedString,
     candles: Vec<Candle>,
+    mode: ChartMode,
 }
 
 impl StockChart {
@@ -104,12 +112,13 @@ impl StockChart {
         Self {
             symbol: "ACME".into(),
             candles,
+            mode: ChartMode::Candlestick,
         }
     }
 }
 
 impl Render for StockChart {
-    fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let mut min_low = f32::MAX;
         let mut max_high = f32::MIN;
 
@@ -131,9 +140,79 @@ impl Render for StockChart {
             candles: self.candles.clone(),
             min_low,
             max_high,
+            mode: self.mode,
         };
 
         let state_for_canvas = state.clone();
+
+        let active_mode = self.mode;
+        let candle_button = {
+            let is_active = matches!(active_mode, ChartMode::Candlestick);
+            div()
+                .id(SharedString::from("chart-mode-candlestick"))
+                .px_3()
+                .py_1()
+                .rounded_full()
+                .border_1()
+                .border_color(if is_active {
+                    rgb(0x22d3ee)
+                } else {
+                    rgb(0x1f2937)
+                })
+                .bg(if is_active {
+                    rgb(0x0ea5e9)
+                } else {
+                    rgb(0x111c2d)
+                })
+                .text_sm()
+                .text_color(if is_active {
+                    rgb(0x061420)
+                } else {
+                    rgb(0xf8fafc)
+                })
+                .cursor_pointer()
+                .child("Candlestick")
+                .on_click(cx.listener(|this, _, _, cx| {
+                    if this.mode != ChartMode::Candlestick {
+                        this.mode = ChartMode::Candlestick;
+                        cx.notify();
+                    }
+                }))
+        };
+
+        let line_button = {
+            let is_active = matches!(active_mode, ChartMode::Line);
+            div()
+                .id(SharedString::from("chart-mode-line"))
+                .px_3()
+                .py_1()
+                .rounded_full()
+                .border_1()
+                .border_color(if is_active {
+                    rgb(0x22d3ee)
+                } else {
+                    rgb(0x1f2937)
+                })
+                .bg(if is_active {
+                    rgb(0x0ea5e9)
+                } else {
+                    rgb(0x111c2d)
+                })
+                .text_sm()
+                .text_color(if is_active {
+                    rgb(0x061420)
+                } else {
+                    rgb(0xf8fafc)
+                })
+                .cursor_pointer()
+                .child("Line")
+                .on_click(cx.listener(|this, _, _, cx| {
+                    if this.mode != ChartMode::Line {
+                        this.mode = ChartMode::Line;
+                        cx.notify();
+                    }
+                }))
+        };
 
         div()
             .bg(rgb(0x111827))
@@ -146,10 +225,18 @@ impl Render for StockChart {
             .gap_4()
             .child(
                 div()
-                    .text_color(rgb(0xf8fafc))
-                    .text_lg()
-                    .font_weight(FontWeight::SEMIBOLD)
-                    .child(format!("{} • Sample Candlestick", self.symbol)),
+                    .flex()
+                    .items_center()
+                    .justify_between()
+                    .w_full()
+                    .child(
+                        div()
+                            .text_color(rgb(0xf8fafc))
+                            .text_lg()
+                            .font_weight(FontWeight::SEMIBOLD)
+                            .child(format!("{} • Sample Chart", self.symbol)),
+                    )
+                    .child(div().flex().gap_2().child(candle_button).child(line_button)),
             )
             .child(
                 canvas(
@@ -214,44 +301,73 @@ fn draw_stock_canvas(bounds: Bounds<Pixels>, state: ChartState, window: &mut Win
         }
     }
 
-    let wick_color = rgb(0xe2e8f0);
-    for (index, candle) in state.candles.iter().enumerate() {
-        let center_x = margin + (index as f32 + 0.5) * step;
-        let high_y = margin + (max_high - candle.high) / range * chart_height;
-        let low_y = margin + (max_high - candle.low) / range * chart_height;
+    match state.mode {
+        ChartMode::Candlestick => {
+            let wick_color = rgb(0xe2e8f0);
+            for (index, candle) in state.candles.iter().enumerate() {
+                let center_x = margin + (index as f32 + 0.5) * step;
+                let high_y = margin + (max_high - candle.high) / range * chart_height;
+                let low_y = margin + (max_high - candle.low) / range * chart_height;
 
-        let mut wick = PathBuilder::stroke(px(1.2));
-        wick.move_to(point(px(center_x), px(high_y)));
-        wick.line_to(point(px(center_x), px(low_y)));
+                let mut wick = PathBuilder::stroke(px(1.2));
+                wick.move_to(point(px(center_x), px(high_y)));
+                wick.line_to(point(px(center_x), px(low_y)));
 
-        if let Ok(path) = wick.build() {
-            window.paint_path(path, wick_color);
+                if let Ok(path) = wick.build() {
+                    window.paint_path(path, wick_color);
+                }
+
+                let open_y = margin + (max_high - candle.open) / range * chart_height;
+                let close_y = margin + (max_high - candle.close) / range * chart_height;
+
+                let body_top = open_y.min(close_y);
+                let body_bottom = open_y.max(close_y);
+                let body_height = (body_bottom - body_top).max(1.0);
+
+                let body_bounds = Bounds::new(
+                    point(px(center_x - body_width / 2.0), px(body_top)),
+                    size(px(body_width), px(body_height)),
+                );
+
+                let (body_color, border_color) = if candle.close >= candle.open {
+                    (rgb(0x34d399), rgb(0x10b981))
+                } else {
+                    (rgb(0xf87171), rgb(0xef4444))
+                };
+
+                window.paint_quad(fill(body_bounds.clone(), body_color));
+                window.paint_quad(outline(body_bounds, border_color, BorderStyle::default()));
+            }
         }
+        ChartMode::Line => {
+            let mut builder = PathBuilder::stroke(px(2.0));
+            for (index, candle) in state.candles.iter().enumerate() {
+                let center_x = margin + (index as f32 + 0.5) * step;
+                let close_y = margin + (max_high - candle.close) / range * chart_height;
+                if index == 0 {
+                    builder.move_to(point(px(center_x), px(close_y)));
+                } else {
+                    builder.line_to(point(px(center_x), px(close_y)));
+                }
+            }
 
-        let open_y = margin + (max_high - candle.open) / range * chart_height;
-        let close_y = margin + (max_high - candle.close) / range * chart_height;
+            if let Ok(path) = builder.build() {
+                window.paint_path(path, rgb(0x38bdf8));
+            }
 
-        let body_top = open_y.min(close_y);
-        let body_bottom = open_y.max(close_y);
-        let body_height = (body_bottom - body_top).max(1.0);
-
-        let body_bounds = Bounds::new(
-            point(px(center_x - body_width / 2.0), px(body_top)),
-            size(px(body_width), px(body_height)),
-        );
-
-        let (body_color, border_color) = if candle.close >= candle.open {
-            (rgb(0x34d399), rgb(0x10b981))
-        } else {
-            (rgb(0xf87171), rgb(0xef4444))
-        };
-
-        window.paint_quad(fill(body_bounds.clone(), body_color));
-        window.paint_quad(outline(
-            body_bounds,
-            border_color,
-            BorderStyle::default(),
-        ));
+            let point_color = rgb(0xbfdbfe);
+            let radius = 3.5_f32;
+            for (index, candle) in state.candles.iter().enumerate() {
+                let center_x = margin + (index as f32 + 0.5) * step;
+                let close_y = margin + (max_high - candle.close) / range * chart_height;
+                let point_bounds = Bounds::new(
+                    point(px(center_x - radius), px(close_y - radius)),
+                    size(px(radius * 2.0), px(radius * 2.0)),
+                );
+                window.paint_quad(fill(point_bounds.clone(), point_color));
+                window.paint_quad(outline(point_bounds, rgb(0x1e3a8a), BorderStyle::default()));
+            }
+        }
     }
 }
 
